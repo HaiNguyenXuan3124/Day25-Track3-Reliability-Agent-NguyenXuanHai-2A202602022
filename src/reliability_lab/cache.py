@@ -222,7 +222,41 @@ class SharedRedisCache:
         7. Before returning a match, check _looks_like_false_hit(); if true,
            append to self.false_hit_log and return (None, best_score)
         """
-        return None, 0.0
+        if _is_uncacheable(query):
+            return None, 0.0
+
+        exact_key = f"{self.prefix}{self._query_hash(query)}"
+        exact = self._redis.hget(exact_key, "response")
+        if exact is not None:
+            return exact, 1.0
+
+        best_score = 0.0
+        best_query: str | None = None
+        best_response: str | None = None
+        for key in self._redis.scan_iter(f"{self.prefix}*"):
+            cached_query = self._redis.hget(key, "query")
+            if cached_query is None:
+                continue
+            score = ResponseCache.similarity(query, cached_query)
+            if score > best_score:
+                best_score = score
+                best_query = cached_query
+                best_response = self._redis.hget(key, "response")
+
+        if best_response is not None and best_score >= self.similarity_threshold:
+            if best_query is not None and _looks_like_false_hit(query, best_query):
+                self.false_hit_log.append(
+                    {
+                        "query": query,
+                        "cached_key": best_query,
+                        "score": best_score,
+                        "reason": "date_or_number_mismatch",
+                    }
+                )
+                return None, best_score
+            return best_response, best_score
+
+        return None, best_score
 
     def set(self, query: str, value: str, metadata: dict[str, str] | None = None) -> None:
         """Store a response in Redis with TTL.
@@ -233,7 +267,11 @@ class SharedRedisCache:
         3. self._redis.hset(key, mapping={"query": query, "response": value})
         4. self._redis.expire(key, self.ttl_seconds)
         """
-        pass
+        if _is_uncacheable(query):
+            return
+        key = f"{self.prefix}{self._query_hash(query)}"
+        self._redis.hset(key, mapping={"query": query, "response": value})
+        self._redis.expire(key, self.ttl_seconds)
 
     def flush(self) -> None:
         """Remove all entries with this cache prefix (for testing)."""
