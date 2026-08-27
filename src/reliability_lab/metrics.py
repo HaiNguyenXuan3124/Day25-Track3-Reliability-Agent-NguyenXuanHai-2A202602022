@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import csv
 import json
+from collections.abc import Iterable
 from pathlib import Path
 from statistics import median
-from typing import Iterable
 
 from pydantic import BaseModel, Field
 
@@ -74,9 +74,9 @@ class RunMetrics(BaseModel):
         4. Create parent directories if needed
         """
         report = self.to_report_dict()
-        scenarios = report.pop("scenarios", {})
+        report.pop("scenarios", None)
         row: dict[str, object] = dict(report)
-        for name, status in scenarios.items():
+        for name, status in self.scenarios.items():
             row[f"scenario_{name}"] = status
 
         Path(path).parent.mkdir(parents=True, exist_ok=True)

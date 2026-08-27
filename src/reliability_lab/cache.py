@@ -205,7 +205,7 @@ class SharedRedisCache:
         """Check Redis connectivity."""
         try:
             return bool(self._redis.ping())
-        except Exception:
+        except Exception:  # noqa: BLE001 - any connection error means "not reachable"
             return False
 
     def get(self, query: str) -> tuple[str | None, float]:
